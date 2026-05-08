@@ -365,8 +365,10 @@ def build_data_sheet(s_def, is_input):
         + '<sheetFormatPr defaultRowHeight="15"/>'
         + cols
         + '<sheetData>' + "".join(rows_xml) + '</sheetData>'
-        + dv_xml
+        # IMPORTANT: per OOXML schema, conditionalFormatting MUST come
+        # before dataValidations. Kalau terbalik Excel menolak loadnya.
         + cf_xml
+        + dv_xml
         + '<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/>'
         + '</worksheet>'
     )
