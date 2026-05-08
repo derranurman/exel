@@ -41,11 +41,15 @@ SHEETS = [
         "name": "Output Agus",
         "headers": ["No", "Kode Barang", "Tanggal Keluar"],
         "role": "output",
+        # nama sheet "pasangan" output - kode di sini tidak boleh sama
+        # dengan kode di sana.
+        "other_output": "Output Rexa",
     },
     {
         "name": "Output Rexa",
         "headers": ["No", "Kode Barang", "Tanggal Keluar"],
         "role": "output",
+        "other_output": "Output Agus",
     },
     {
         "name": "Rekap",
@@ -269,8 +273,16 @@ def build_data_sheet(s_def, is_input):
     """Sheet Input Barang / Output Agus / Output Rexa.
 
     Kolom: A=No (formula), B=Kode Barang (text), C=Tanggal (formula NOW)
+
+    Aturan:
+     - Di sheet Input: kode tidak boleh duplikat (dalam sheet itu sendiri).
+     - Di sheet Output: kode harus sudah ada di Input, kode tidak boleh
+       duplikat di sheet itu sendiri, dan kode tidak boleh sudah di-scan di
+       sheet output pasangan-nya (Agus vs Rexa). Artinya tiap kode output
+       hanya bisa keluar SEKALI, entah oleh Agus atau Rexa.
     """
     name = s_def["name"]
+    other_output = s_def.get("other_output", "")
 
     rows_xml = []
 
@@ -308,28 +320,58 @@ def build_data_sheet(s_def, is_input):
             f'</dataValidations>'
         )
     else:
-        # Validasi: kode HARUS sudah ada di Input Barang.
-        # Pakai type=custom (bukan list) supaya scanner gak ketemu dropdown
-        # dan langsung bisa tekan Enter.
+        # Validasi 3-in-1 untuk output:
+        #  1) Kode HARUS sudah ada di sheet Input Barang.
+        #  2) Tidak duplikat di sheet yang sama.
+        #  3) Belum pernah discan di sheet output yang lain.
         formula = (
-            f"COUNTIF('Input Barang'!$B$2:$B${MAX_ROWS},B2)>=1"
+            "AND("
+            f"COUNTIF('Input Barang'!$B$2:$B${MAX_ROWS},B2)>=1,"
+            f"COUNTIF($B$2:$B${MAX_ROWS},B2)<=1,"
+            f"COUNTIF('{other_output}'!$B$2:$B${MAX_ROWS},B2)=0"
+            ")"
+        )
+        err_msg = (
+            "Kode ditolak. Kemungkinan: "
+            "(1) kode tidak ada di sheet Input Barang, "
+            "(2) kode sudah discan di sheet ini, atau "
+            f"(3) kode sudah discan di sheet {other_output}."
         )
         dv_xml = (
             f'<dataValidations count="1">'
             f'<dataValidation type="custom" allowBlank="1" showInputMessage="0" '
             f'showErrorMessage="1" errorStyle="stop" '
-            f'errorTitle="Kode Tidak Terdaftar" '
-            f'error="Kode barang ini TIDAK ADA di sheet Input Barang. Input dulu di sheet Input Barang." '
+            f'errorTitle="Kode Tidak Valid" '
+            f'error="{escape(err_msg)}" '
             f'sqref="B2:B{MAX_ROWS}">'
             f'<formula1>{escape(formula)}</formula1>'
             f'</dataValidation>'
             f'</dataValidations>'
         )
 
-    # --- conditional formatting (highlight duplikat di input) ---
+    # --- conditional formatting ---
     cf_xml = ""
     if is_input:
         cf_formula = f'COUNTIF($B$2:$B${MAX_ROWS},B2)>1'
+        cf_xml = (
+            f'<conditionalFormatting sqref="B2:B{MAX_ROWS}">'
+            f'<cfRule type="expression" dxfId="0" priority="1">'
+            f'<formula>{escape(cf_formula)}</formula>'
+            f'</cfRule>'
+            f'</conditionalFormatting>'
+        )
+    else:
+        # highlight merah kalau kode tidak valid (pelanggaran salah satu aturan)
+        cf_formula = (
+            "AND("
+            f'B2<>"",'
+            "NOT(AND("
+            f"COUNTIF('Input Barang'!$B$2:$B${MAX_ROWS},B2)>=1,"
+            f"COUNTIF($B$2:$B${MAX_ROWS},B2)<=1,"
+            f"COUNTIF('{other_output}'!$B$2:$B${MAX_ROWS},B2)=0"
+            "))"
+            ")"
+        )
         cf_xml = (
             f'<conditionalFormatting sqref="B2:B{MAX_ROWS}">'
             f'<cfRule type="expression" dxfId="0" priority="1">'
